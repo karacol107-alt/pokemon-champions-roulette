@@ -56,7 +56,7 @@ export const TournamentPage: React.FC = () => {
   const [entryType, setEntryType] = useState<'solo' | 'team'>('solo');
   const [battleRule, setBattleRule] = useState<'シングル' | 'ダブル' | '混合'>('シングル');
 
-  // 個人戦用 入力ステート
+  // 個人戦用 入力ステート（チーム振り分けなし・選手一括登録CSV対応）
   const [soloPlayers, setSoloPlayers] = useState<string[]>([
     'プレイヤー1',
     'プレイヤー2',
@@ -64,8 +64,10 @@ export const TournamentPage: React.FC = () => {
     'プレイヤー4',
   ]);
   const [newSoloName, setNewSoloName] = useState('');
-  const [soloBulkOpen, setSoloBulkOpen] = useState(false);
-  const [soloCsvText, setSoloCsvText] = useState('プレイヤー名\nプレイヤー1\nプレイヤー2\nプレイヤー3\nプレイヤー4');
+  const [soloCsvOpen, setSoloCsvOpen] = useState(false);
+  const [soloCsvText, setSoloCsvText] = useState(
+    '選手名,備考（任意）\nプレイヤー1,使用軸A\nプレイヤー2,使用軸B\nプレイヤー3,\nプレイヤー4,'
+  );
   const soloCsvFileRef = useRef<HTMLInputElement | null>(null);
 
   // チーム戦用 入力ステート
@@ -74,7 +76,7 @@ export const TournamentPage: React.FC = () => {
     { id: 't-init-2', teamName: 'チームB', members: ['選手4', '選手5', '選手6'] },
   ]);
 
-  // チーム一括登録ツール用ステート（1: CSV / 2: ランダムチーム分け）
+  // チーム戦一括登録ツール用ステート
   const [bulkToolTab, setBulkToolTab] = useState<'none' | 'csv' | 'shuffle'>('none');
   const [csvPasteText, setCsvPasteText] = useState(
     'チーム名,先鋒,中堅,大将\nチームA,選手1,選手2,選手3\nチームB,選手4,選手5,選手6'
@@ -104,10 +106,21 @@ export const TournamentPage: React.FC = () => {
     setNewSoloName('');
   };
 
-  // 個人戦 CSVテンプレートDL
+  // 個人戦専用 CSVテンプレートDL（選手名一括登録用）
   const handleDownloadSoloCsvTemplate = () => {
     const csvContent =
-      '\uFEFF' + ['プレイヤー名', 'プレイヤー1', 'プレイヤー2', 'プレイヤー3', 'プレイヤー4'].join('\r\n');
+      '\uFEFF' +
+      [
+        '選手名,備考（任意）',
+        'プレイヤー1,',
+        'プレイヤー2,',
+        'プレイヤー3,',
+        'プレイヤー4,',
+        'プレイヤー5,',
+        'プレイヤー6,',
+        'プレイヤー7,',
+        'プレイヤー8,',
+      ].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -119,20 +132,36 @@ export const TournamentPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  // 個人戦 CSVテキスト反映
   const applySoloCsvText = (rawText: string) => {
     const lines = rawText
       .replace(/^\uFEFF/, '')
-      .split(/[\r\n,、\t]+/)
+      .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
 
-    const filtered = lines.filter((l, idx) => !(idx === 0 && (l === 'プレイヤー名' || l === '参加者名')));
-    if (filtered.length < 2) {
-      alert('参加者を2名以上入力してください。');
+    const parsedNames: string[] = [];
+    lines.forEach((line, idx) => {
+      // 1行目のヘッダーはスキップ
+      if (
+        idx === 0 &&
+        (line.startsWith('選手名') || line.startsWith('プレイヤー名') || line.startsWith('参加者名'))
+      ) {
+        return;
+      }
+      // CSVの1列目（カンマまたはタブ区切りの先頭）を選手名として取得
+      const firstCol = line.split(/[,、\t]/)[0]?.trim();
+      if (firstCol) {
+        parsedNames.push(firstCol);
+      }
+    });
+
+    if (parsedNames.length < 2) {
+      alert('参加者を2名以上入力してください（1行に1名、または「選手名,備考」のCSV形式で入力できます）。');
       return;
     }
-    setSoloPlayers(filtered);
-    setSoloBulkOpen(false);
+    setSoloPlayers(parsedNames);
+    setSoloCsvOpen(false);
   };
 
   const handleSoloCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,7 +191,7 @@ export const TournamentPage: React.FC = () => {
     ]);
   };
 
-  // 1. チーム戦 CSVテンプレートダウンロード
+  // チーム戦 CSVテンプレートダウンロード
   const handleDownloadCsvTemplate = () => {
     const csvContent =
       '\uFEFF' +
@@ -251,7 +280,7 @@ export const TournamentPage: React.FC = () => {
     e.target.value = '';
   };
 
-  // 2. 参加者リストからのランダム自動チーム分け
+  // 参加者リストからのランダム自動チーム分け（チーム戦専用）
   const handleGenerateRandomTeams = () => {
     const names = shufflePoolText
       .split(/[\r\n,、\t]+/)
@@ -652,7 +681,7 @@ export const TournamentPage: React.FC = () => {
           D：大会運営
         </h2>
         <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-          順位基準：①勝ち点 → ②勝率 → ③直接対決 → ④得失点差 → ⑤同順位（全形式で個人戦・チーム戦・一括登録・詳細戦績対応）
+          順位基準：①勝ち点 → ②勝率 → ③直接対決 → ④得失点差 → ⑤同順位（全形式で個人戦・チーム戦・CSV一括登録・詳細戦績対応）
         </p>
       </header>
 
@@ -704,7 +733,10 @@ export const TournamentPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-bold mb-1">参加単位（全形式対応）</label>
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-lg border" style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}>
+            <div
+              className="grid grid-cols-2 gap-1 p-1 rounded-lg border"
+              style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+            >
               <button
                 type="button"
                 onClick={() => setEntryType('solo')}
@@ -747,7 +779,7 @@ export const TournamentPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 参加単位に応じた専用入力エリア（すべての大会形式で利用可能） */}
+        {/* 参加単位に応じた専用入力エリア */}
         {entryType === 'team' ? (
           <div
             className="p-4 rounded-xl border space-y-3"
@@ -771,7 +803,7 @@ export const TournamentPage: React.FC = () => {
                   }}
                 >
                   <FileSpreadsheet size={14} />
-                  <span>1. CSV一括登録</span>
+                  <span>チーム用CSV一括登録</span>
                 </button>
 
                 <button
@@ -785,7 +817,7 @@ export const TournamentPage: React.FC = () => {
                   }}
                 >
                   <Shuffle size={14} />
-                  <span>2. 参加者から自動チーム分け</span>
+                  <span>参加者から自動チーム分け</span>
                 </button>
 
                 <button
@@ -800,7 +832,7 @@ export const TournamentPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 1. CSV一括登録・テンプレートDLパネル */}
+            {/* チーム戦用 CSV一括登録パネル */}
             {bulkToolTab === 'csv' && (
               <div
                 className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
@@ -809,7 +841,7 @@ export const TournamentPage: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-bold flex items-center gap-1.5">
                     <FileSpreadsheet size={15} style={{ color: 'var(--color-d)' }} />
-                    <span>CSVフォーマットで一括登録（Excel・スプレッドシート対応）</span>
+                    <span>チーム戦用 CSV一括登録（team_roster_template.csv）</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -819,7 +851,7 @@ export const TournamentPage: React.FC = () => {
                       style={{ borderColor: 'var(--color-d)', color: 'var(--color-d)', backgroundColor: 'var(--bg-main)' }}
                     >
                       <Download size={13} />
-                      <span>CSVテンプレートをダウンロード</span>
+                      <span>チームCSVテンプレートDL</span>
                     </button>
 
                     <button
@@ -842,7 +874,7 @@ export const TournamentPage: React.FC = () => {
                 </div>
 
                 <p className="opacity-75">
-                  形式: <code>チーム名,先鋒,中堅,大将</code>（1行につき1チーム。Excelで編集してCSV保存したファイルをそのまま読み込むか、下に直接貼り付けて「このCSVテキストをチーム枠へ反映」を押してください）
+                  形式: <code>チーム名,先鋒,中堅,大将</code>（1行につき1チーム）
                 </p>
 
                 <textarea
@@ -874,7 +906,7 @@ export const TournamentPage: React.FC = () => {
               </div>
             )}
 
-            {/* 2. 参加者リストからの自動ランダムチーム分けパネル */}
+            {/* チーム戦用 ランダムチーム分けパネル */}
             {bulkToolTab === 'shuffle' && (
               <div
                 className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
@@ -884,10 +916,6 @@ export const TournamentPage: React.FC = () => {
                   <Shuffle size={15} style={{ color: 'var(--color-d)' }} />
                   <span>参加者名リストからランダム自動チーム分け</span>
                 </div>
-
-                <p className="opacity-75">
-                  参加者の名前を改行（またはカンマ）区切りで貼り付けると、ランダムにシャッフルしてチームA・チームB…へ自動振り分けします。
-                </p>
 
                 <textarea
                   rows={4}
@@ -1053,6 +1081,7 @@ export const TournamentPage: React.FC = () => {
             </div>
           </div>
         ) : (
+          /* 個人戦専用エリア（チーム振り分けなし・選手一括登録CSVテンプレート対応） */
           <div
             className="p-4 rounded-xl border space-y-3"
             style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
@@ -1060,40 +1089,43 @@ export const TournamentPage: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-bold flex items-center gap-1.5">
                 <User size={15} style={{ color: 'var(--color-d)' }} />
-                <span>参加プレイヤーリスト（現在 {soloPlayers.filter((p) => p.trim()).length}名 / {format}）</span>
+                <span>出場選手リスト（現在 {soloPlayers.filter((p) => p.trim()).length}名 / {format}）</span>
               </label>
 
               <button
                 type="button"
-                onClick={() => setSoloBulkOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer"
+                onClick={() => setSoloCsvOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer"
                 style={{
-                  backgroundColor: soloBulkOpen ? 'var(--color-d)' : 'var(--bg-card)',
-                  color: soloBulkOpen ? '#ffffff' : 'var(--color-d)',
+                  backgroundColor: soloCsvOpen ? 'var(--color-d)' : 'var(--bg-card)',
+                  color: soloCsvOpen ? '#ffffff' : 'var(--color-d)',
                   borderColor: 'var(--color-d)',
                 }}
               >
                 <FileSpreadsheet size={14} />
-                <span>CSV一括登録・テンプレートDL</span>
+                <span>選手CSV一括登録・テンプレートDL</span>
               </button>
             </div>
 
-            {soloBulkOpen && (
+            {soloCsvOpen && (
               <div
                 className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
                 style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-d)' }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-bold">個人戦用 CSV一括登録</span>
+                  <div className="font-bold flex items-center gap-1.5">
+                    <FileSpreadsheet size={15} style={{ color: 'var(--color-d)' }} />
+                    <span>個人戦用 選手一括登録CSV（solo_players_template.csv）</span>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={handleDownloadSoloCsvTemplate}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold border cursor-pointer"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold border hover:opacity-80 cursor-pointer"
                       style={{ borderColor: 'var(--color-d)', color: 'var(--color-d)', backgroundColor: 'var(--bg-main)' }}
                     >
                       <Download size={13} />
-                      <span>CSVテンプレートをダウンロード</span>
+                      <span>個人戦CSVテンプレートDL</span>
                     </button>
                     <button
                       type="button"
@@ -1114,8 +1146,12 @@ export const TournamentPage: React.FC = () => {
                   </div>
                 </div>
 
+                <p className="opacity-75">
+                  形式: <code>選手名,備考（任意）</code>（1行につき1選手。Excelやスプレッドシートで名前を縦に並べてCSV保存し読み込むか、下に直接貼り付けて反映できます）
+                </p>
+
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={soloCsvText}
                   onChange={(e) => setSoloCsvText(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border font-mono text-xs"
@@ -1125,7 +1161,7 @@ export const TournamentPage: React.FC = () => {
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => setSoloBulkOpen(false)}
+                    onClick={() => setSoloCsvOpen(false)}
                     className="px-3 py-1.5 rounded-lg border font-bold cursor-pointer"
                     style={{ borderColor: 'var(--border-color)' }}
                   >
@@ -1137,7 +1173,7 @@ export const TournamentPage: React.FC = () => {
                     className="px-4 py-1.5 rounded-lg font-bold text-white cursor-pointer"
                     style={{ backgroundColor: 'var(--color-d)' }}
                   >
-                    参加者リストへ反映
+                    選手リストへ一括反映
                   </button>
                 </div>
               </div>
@@ -1154,7 +1190,7 @@ export const TournamentPage: React.FC = () => {
                   <input
                     type="text"
                     value={player}
-                    placeholder={`プレイヤー${idx + 1}`}
+                    placeholder={`選手${idx + 1}`}
                     onChange={(e) =>
                       setSoloPlayers((prev) => prev.map((p, i) => (i === idx ? e.target.value : p)))
                     }
@@ -1177,7 +1213,7 @@ export const TournamentPage: React.FC = () => {
             <div className="flex gap-2 pt-1 max-w-md">
               <input
                 type="text"
-                placeholder="新しいプレイヤー名を入力..."
+                placeholder="新しい選手名を入力..."
                 value={newSoloName}
                 onChange={(e) => setNewSoloName(e.target.value)}
                 onKeyDown={(e) => {
@@ -1196,7 +1232,7 @@ export const TournamentPage: React.FC = () => {
                 style={{ backgroundColor: 'var(--color-d)' }}
               >
                 <Plus size={14} />
-                <span>参加者を追加</span>
+                <span>選手を追加</span>
               </button>
             </div>
           </div>
