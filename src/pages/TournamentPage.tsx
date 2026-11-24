@@ -7,6 +7,7 @@ import {
   Trash2,
   CheckCircle2,
   Users,
+  User,
   ClipboardList,
   ChevronDown,
   ChevronUp,
@@ -35,6 +36,7 @@ interface DetailedMatchMeta {
 }
 
 interface ExtendedTournamentRecord extends TournamentRecord {
+  entryType?: 'solo' | 'team';
   teamRosters?: Record<string, string[]>;
   matchDetails?: Record<string, DetailedMatchMeta>;
 }
@@ -50,7 +52,8 @@ export const TournamentPage: React.FC = () => {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [format, setFormat] = useState<TournamentRecord['format']>('チーム総当たり');
+  const [format, setFormat] = useState<TournamentRecord['format']>('個人総当たり');
+  const [entryType, setEntryType] = useState<'solo' | 'team'>('solo');
   const [battleRule, setBattleRule] = useState<'シングル' | 'ダブル' | '混合'>('シングル');
 
   // 個人戦用 入力ステート
@@ -61,6 +64,9 @@ export const TournamentPage: React.FC = () => {
     'プレイヤー4',
   ]);
   const [newSoloName, setNewSoloName] = useState('');
+  const [soloBulkOpen, setSoloBulkOpen] = useState(false);
+  const [soloCsvText, setSoloCsvText] = useState('プレイヤー名\nプレイヤー1\nプレイヤー2\nプレイヤー3\nプレイヤー4');
+  const soloCsvFileRef = useRef<HTMLInputElement | null>(null);
 
   // チーム戦用 入力ステート
   const [teamInputs, setTeamInputs] = useState<TeamDraftInput[]>([
@@ -87,7 +93,8 @@ export const TournamentPage: React.FC = () => {
 
   const activeTournament = tournaments.find((t) => t.id === activeId) || tournaments[0] || null;
 
-  const isTeamFormat = (fmt: string) => fmt.includes('チーム');
+  const isTournamentTeamMode = (t: ExtendedTournamentRecord) =>
+    t.entryType === 'team' || (t.entryType === undefined && (t.format.includes('チーム') || !!t.teamRosters));
 
   // 個人戦リスト操作
   const handleAddSoloPlayer = () => {
@@ -95,6 +102,50 @@ export const TournamentPage: React.FC = () => {
     if (!trimmed) return;
     setSoloPlayers((prev) => [...prev, trimmed]);
     setNewSoloName('');
+  };
+
+  // 個人戦 CSVテンプレートDL
+  const handleDownloadSoloCsvTemplate = () => {
+    const csvContent =
+      '\uFEFF' + ['プレイヤー名', 'プレイヤー1', 'プレイヤー2', 'プレイヤー3', 'プレイヤー4'].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'solo_players_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const applySoloCsvText = (rawText: string) => {
+    const lines = rawText
+      .replace(/^\uFEFF/, '')
+      .split(/[\r\n,、\t]+/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    const filtered = lines.filter((l, idx) => !(idx === 0 && (l === 'プレイヤー名' || l === '参加者名')));
+    if (filtered.length < 2) {
+      alert('参加者を2名以上入力してください。');
+      return;
+    }
+    setSoloPlayers(filtered);
+    setSoloBulkOpen(false);
+  };
+
+  const handleSoloCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || '');
+      setSoloCsvText(text.replace(/^\uFEFF/, ''));
+      applySoloCsvText(text);
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
   };
 
   // チーム戦リスト操作
@@ -111,7 +162,7 @@ export const TournamentPage: React.FC = () => {
     ]);
   };
 
-  // 1. CSVテンプレートダウンロード（Excel文字化け防止のBOM付きUTF-8）
+  // 1. チーム戦 CSVテンプレートダウンロード
   const handleDownloadCsvTemplate = () => {
     const csvContent =
       '\uFEFF' +
@@ -133,7 +184,7 @@ export const TournamentPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  // CSVテキストをパースしてチーム入力へ反映
+  // チーム戦 CSVテキスト反映
   const applyCsvTextToTeams = (rawText: string) => {
     const lines = rawText
       .replace(/^\uFEFF/, '')
@@ -148,12 +199,10 @@ export const TournamentPage: React.FC = () => {
 
     const parsed: TeamDraftInput[] = [];
     lines.forEach((line, idx) => {
-      // ヘッダー行（1行目が「チーム名,...」）は自動スキップ
       if (idx === 0 && (line.startsWith('チーム名,') || line.startsWith('チーム名\t'))) {
         return;
       }
 
-      // 「チームA: 選手1, 選手2」形式と「チームA,選手1,選手2」CSV形式の両方に対応
       let teamName = '';
       let members: string[] = [];
 
@@ -189,7 +238,6 @@ export const TournamentPage: React.FC = () => {
     setBulkToolTab('none');
   };
 
-  // CSVファイルアップロード処理
   const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -215,7 +263,6 @@ export const TournamentPage: React.FC = () => {
       return;
     }
 
-    // Fisher-Yates シャッフル
     const shuffled = [...names];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -254,8 +301,9 @@ export const TournamentPage: React.FC = () => {
 
     const participants: string[] = [];
     const teamRosters: Record<string, string[]> = {};
+    const isTeam = entryType === 'team';
 
-    if (isTeamFormat(format)) {
+    if (isTeam) {
       const validTeams = teamInputs
         .map((t) => ({
           teamName: t.teamName.trim(),
@@ -287,12 +335,12 @@ export const TournamentPage: React.FC = () => {
     const createInitialDetails = (mId: string, p1: string, p2: string) => {
       const m1List = teamRosters[p1] || [p1];
       const m2List = teamRosters[p2] || [p2];
-      const count = isTeamFormat(format) ? Math.max(m1List.length, m2List.length, 1) : 1;
+      const count = isTeam ? Math.max(m1List.length, m2List.length, 1) : 1;
       const bouts: IndividualBout[] = [];
       for (let k = 0; k < count; k++) {
         bouts.push({
           id: `${mId}-b${k + 1}`,
-          label: isTeamFormat(format) ? `第${k + 1}試合` : '本戦',
+          label: isTeam ? `第${k + 1}試合` : '本戦',
           p1Member: m1List[k] || m1List[0] || p1,
           p2Member: m2List[k] || m2List[0] || p2,
           winnerSide: null,
@@ -340,16 +388,18 @@ export const TournamentPage: React.FC = () => {
     }
 
     const id = `tour-${Date.now()}`;
+    const modeLabel = isTeam && !format.includes('チーム') ? `${format}・チーム戦` : format;
     const newRecord: ExtendedTournamentRecord = {
       id,
-      name: name.trim() || `${format}大会 (${new Date().toLocaleDateString('ja-JP')})`,
+      name: name.trim() || `${modeLabel}大会 (${new Date().toLocaleDateString('ja-JP')})`,
       format,
+      entryType,
       battleRule,
       participants,
       matches,
       status: '進行中',
       createdAt: new Date().toLocaleString('ja-JP'),
-      teamRosters: isTeamFormat(format) ? teamRosters : undefined,
+      teamRosters: isTeam ? teamRosters : undefined,
       matchDetails,
     };
 
@@ -390,6 +440,7 @@ export const TournamentPage: React.FC = () => {
     const updatedMatches = tournament.matches.map((m) =>
       m.id === matchId ? { ...m, winner, score1: s1, score2: s2 } : m
     );
+    const updatedDetails = { ...(tournament.matchDetails || {}) };
 
     if (tournament.format === 'トーナメント' || tournament.format === '勝ち抜き') {
       const currentRound = Math.max(...updatedMatches.map((m) => m.round));
@@ -399,8 +450,9 @@ export const TournamentPage: React.FC = () => {
         for (let i = 0; i < winners.length; i += 2) {
           const p1 = winners[i];
           const p2 = winners[i + 1] || '（不戦勝）';
+          const nextId = `m-r${currentRound + 1}-${i}`;
           updatedMatches.push({
-            id: `m-r${currentRound + 1}-${i}`,
+            id: nextId,
             round: currentRound + 1,
             player1: p1,
             player2: p2,
@@ -408,6 +460,26 @@ export const TournamentPage: React.FC = () => {
             score2: 0,
             winner: p2 === '（不戦勝）' ? p1 : null,
           });
+          if (p2 !== '（不戦勝）') {
+            const isTeam = isTournamentTeamMode(tournament);
+            const m1List = tournament.teamRosters?.[p1] || [p1];
+            const m2List = tournament.teamRosters?.[p2] || [p2];
+            const count = isTeam ? Math.max(m1List.length, m2List.length, 1) : 1;
+            const bouts: IndividualBout[] = [];
+            for (let k = 0; k < count; k++) {
+              bouts.push({
+                id: `${nextId}-b${k + 1}`,
+                label: isTeam ? `第${k + 1}試合` : '本戦',
+                p1Member: m1List[k] || m1List[0] || p1,
+                p2Member: m2List[k] || m2List[0] || p2,
+                winnerSide: null,
+                p1Remaining: 0,
+                p2Remaining: 0,
+                note: '',
+              });
+            }
+            updatedDetails[nextId] = { bouts, matchNote: '' };
+          }
         }
       }
     }
@@ -415,8 +487,9 @@ export const TournamentPage: React.FC = () => {
     const allDone = updatedMatches.every((m) => m.winner !== null);
     await db.tournaments.update(tournament.id, {
       matches: updatedMatches,
+      matchDetails: updatedDetails,
       status: allDone ? '終了' : '進行中',
-    });
+    } as Partial<TournamentRecord>);
   };
 
   // 詳細戦績（個人試合）の更新
@@ -579,7 +652,7 @@ export const TournamentPage: React.FC = () => {
           D：大会運営
         </h2>
         <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-          順位基準：①勝ち点 → ②勝率 → ③直接対決 → ④得失点差 → ⑤同順位（チーム戦のメンバー・個人戦績記録対応）
+          順位基準：①勝ち点 → ②勝率 → ③直接対決 → ④得失点差 → ⑤同順位（全形式で個人戦・チーム戦・一括登録・詳細戦績対応）
         </p>
       </header>
 
@@ -593,28 +666,34 @@ export const TournamentPage: React.FC = () => {
           <span>新しい大会を作成</span>
         </h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           <div>
             <label className="block text-xs font-bold mb-1">大会名</label>
             <input
               type="text"
-              placeholder={isTeamFormat(format) ? '例：第1回 Championsチーム杯' : '例：第1回 Champions個人杯'}
+              placeholder={entryType === 'team' ? '例：第1回 Championsチーム杯' : '例：第1回 Champions個人杯'}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border"
               style={{ borderColor: 'var(--border-color)' }}
             />
           </div>
+
           <div>
             <label className="block text-xs font-bold mb-1">大会形式</label>
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as TournamentRecord['format'])}
+              onChange={(e) => {
+                const nextFmt = e.target.value as TournamentRecord['format'];
+                setFormat(nextFmt);
+                if (nextFmt === 'チーム総当たり') setEntryType('team');
+                if (nextFmt === '個人総当たり') setEntryType('solo');
+              }}
               className="w-full px-3 py-2 rounded-lg border font-bold"
               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
             >
-              <option value="チーム総当たり">チーム総当たり（チーム戦）</option>
               <option value="個人総当たり">個人総当たり</option>
+              <option value="チーム総当たり">チーム総当たり</option>
               <option value="トーナメント">トーナメント</option>
               <option value="勝ち抜き">勝ち抜き</option>
               <option value="ポイント制">ポイント制</option>
@@ -622,6 +701,37 @@ export const TournamentPage: React.FC = () => {
               <option value="勝利数競争">勝利数競争</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-xs font-bold mb-1">参加単位（全形式対応）</label>
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-lg border" style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}>
+              <button
+                type="button"
+                onClick={() => setEntryType('solo')}
+                className="flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-bold cursor-pointer"
+                style={{
+                  backgroundColor: entryType === 'solo' ? 'var(--color-d)' : 'transparent',
+                  color: entryType === 'solo' ? '#ffffff' : 'var(--text-main)',
+                }}
+              >
+                <User size={13} />
+                <span>個人戦</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEntryType('team')}
+                className="flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-bold cursor-pointer"
+                style={{
+                  backgroundColor: entryType === 'team' ? 'var(--color-d)' : 'transparent',
+                  color: entryType === 'team' ? '#ffffff' : 'var(--text-main)',
+                }}
+              >
+                <Users size={13} />
+                <span>チーム戦</span>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-bold mb-1">対戦ルール</label>
             <select
@@ -637,8 +747,8 @@ export const TournamentPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 大会形式に応じた分かりやすい専用入力エリア */}
-        {isTeamFormat(format) ? (
+        {/* 参加単位に応じた専用入力エリア（すべての大会形式で利用可能） */}
+        {entryType === 'team' ? (
           <div
             className="p-4 rounded-xl border space-y-3"
             style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
@@ -646,7 +756,7 @@ export const TournamentPage: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-bold flex items-center gap-1.5">
                 <Users size={15} style={{ color: 'var(--color-d)' }} />
-                <span>出場チーム・メンバー設定（現在 {teamInputs.length}チーム）</span>
+                <span>出場チーム・メンバー設定（現在 {teamInputs.length}チーム / {format}）</span>
               </label>
 
               <div className="flex flex-wrap items-center gap-1.5">
@@ -732,7 +842,7 @@ export const TournamentPage: React.FC = () => {
                 </div>
 
                 <p className="opacity-75">
-                  形式: <code>チーム名,先鋒,中堅,大将</code>（1行につき1チーム。Excelで編集してCSV保存したファイルをそのまま読み込むか、下に直接貼り付けて「テキストを反映」を押してください）
+                  形式: <code>チーム名,先鋒,中堅,大将</code>（1行につき1チーム。Excelで編集してCSV保存したファイルをそのまま読み込むか、下に直接貼り付けて「このCSVテキストをチーム枠へ反映」を押してください）
                 </p>
 
                 <textarea
@@ -947,12 +1057,91 @@ export const TournamentPage: React.FC = () => {
             className="p-4 rounded-xl border space-y-3"
             style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
           >
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold">
-                参加プレイヤーリスト（現在 {soloPlayers.filter((p) => p.trim()).length}名）
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-bold flex items-center gap-1.5">
+                <User size={15} style={{ color: 'var(--color-d)' }} />
+                <span>参加プレイヤーリスト（現在 {soloPlayers.filter((p) => p.trim()).length}名 / {format}）</span>
               </label>
-              <span className="text-[11px] opacity-70">※個人戦モード（1名ずつ登録）</span>
+
+              <button
+                type="button"
+                onClick={() => setSoloBulkOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer"
+                style={{
+                  backgroundColor: soloBulkOpen ? 'var(--color-d)' : 'var(--bg-card)',
+                  color: soloBulkOpen ? '#ffffff' : 'var(--color-d)',
+                  borderColor: 'var(--color-d)',
+                }}
+              >
+                <FileSpreadsheet size={14} />
+                <span>CSV一括登録・テンプレートDL</span>
+              </button>
             </div>
+
+            {soloBulkOpen && (
+              <div
+                className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
+                style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-d)' }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold">個人戦用 CSV一括登録</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadSoloCsvTemplate}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold border cursor-pointer"
+                      style={{ borderColor: 'var(--color-d)', color: 'var(--color-d)', backgroundColor: 'var(--bg-main)' }}
+                    >
+                      <Download size={13} />
+                      <span>CSVテンプレートをダウンロード</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => soloCsvFileRef.current?.click()}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer"
+                      style={{ backgroundColor: 'var(--color-d)' }}
+                    >
+                      <Upload size={13} />
+                      <span>CSVファイルを選択して反映</span>
+                    </button>
+                    <input
+                      ref={soloCsvFileRef}
+                      type="file"
+                      accept=".csv,.txt"
+                      onChange={handleSoloCsvUpload}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+
+                <textarea
+                  rows={4}
+                  value={soloCsvText}
+                  onChange={(e) => setSoloCsvText(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border font-mono text-xs"
+                  style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                />
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSoloBulkOpen(false)}
+                    className="px-3 py-1.5 rounded-lg border font-bold cursor-pointer"
+                    style={{ borderColor: 'var(--border-color)' }}
+                  >
+                    閉じる
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySoloCsvText(soloCsvText)}
+                    className="px-4 py-1.5 rounded-lg font-bold text-white cursor-pointer"
+                    style={{ backgroundColor: 'var(--color-d)' }}
+                  >
+                    参加者リストへ反映
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
               {soloPlayers.map((player, idx) => (
@@ -1050,7 +1239,7 @@ export const TournamentPage: React.FC = () => {
             <div>
               <h3 className="text-xl font-bold">{activeTournament.name}</h3>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                形式: {activeTournament.format} / ルール: {activeTournament.battleRule} / 状態: {activeTournament.status}
+                形式: {activeTournament.format}（{isTournamentTeamMode(activeTournament) ? 'チーム戦' : '個人戦'}） / ルール: {activeTournament.battleRule} / 状態: {activeTournament.status}
               </p>
             </div>
             <button
@@ -1065,7 +1254,7 @@ export const TournamentPage: React.FC = () => {
           </div>
 
           {/* チーム戦メンバー管理セクション */}
-          {isTeamFormat(activeTournament.format) && (
+          {isTournamentTeamMode(activeTournament) && (
             <div
               className="p-4 rounded-xl border space-y-3"
               style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
@@ -1415,7 +1604,7 @@ export const TournamentPage: React.FC = () => {
           <div className="space-y-2 pt-2">
             <h4 className="font-bold text-sm flex items-center gap-1.5">
               <Trophy size={16} style={{ color: 'var(--color-d)' }} />
-              <span>リアルタイム順位表（{isTeamFormat(activeTournament.format) ? 'チーム' : '参加者'}）</span>
+              <span>リアルタイム順位表（{isTournamentTeamMode(activeTournament) ? 'チーム' : '参加者'}）</span>
             </h4>
             <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
               <table className="w-full text-left text-sm border-collapse">
@@ -1425,7 +1614,7 @@ export const TournamentPage: React.FC = () => {
                     style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-color)' }}
                   >
                     <th className="p-2.5">順位</th>
-                    <th className="p-2.5">{isTeamFormat(activeTournament.format) ? 'チーム名' : '参加者'}</th>
+                    <th className="p-2.5">{isTournamentTeamMode(activeTournament) ? 'チーム名' : '参加者'}</th>
                     <th className="p-2.5">勝ち点</th>
                     <th className="p-2.5">勝敗</th>
                     <th className="p-2.5">勝率</th>
@@ -1458,7 +1647,7 @@ export const TournamentPage: React.FC = () => {
           </div>
 
           {/* 個人別詳細戦績テーブル（チーム戦時） */}
-          {isTeamFormat(activeTournament.format) && (
+          {isTournamentTeamMode(activeTournament) && (
             <div className="space-y-2 pt-2">
               <h4 className="font-bold text-sm flex items-center gap-1.5">
                 <Users size={16} style={{ color: 'var(--color-d)' }} />
