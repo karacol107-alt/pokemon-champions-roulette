@@ -23,12 +23,13 @@ export const DraftPage: React.FC = () => {
 
   const [mode, setMode] = useState<'auction' | 'scout' | 'gacha' | 'random'>('auction');
   const [participants, setParticipants] = useState<Participant[]>([
-    { id: 'p1', name: 'プレイヤー1', points: 1000, scoutLeft: 3, roster: [] },
-    { id: 'p2', name: 'プレイヤー2', points: 1000, scoutLeft: 3, roster: [] },
+    { id: 'p1', name: 'プレイヤー1', points: 1000, scoutLeft: initialScoutLimit, roster: [] },
+    { id: 'p2', name: 'プレイヤー2', points: 1000, scoutLeft: initialScoutLimit, roster: [] },
   ]);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [initialPoints, setInitialPoints] = useState(1000);
   const [maxRosterSize, setMaxRosterSize] = useState(6);
+  const [initialScoutLimit, setInitialScoutLimit] = useState(3);
 
   // 進行管理ステート
   const [turnIndex, setTurnIndex] = useState(0);
@@ -65,14 +66,14 @@ export const DraftPage: React.FC = () => {
     const id = `p-${Date.now()}`;
     setParticipants((prev) => [
       ...prev,
-      { id, name: newPlayerName.trim(), points: initialPoints, scoutLeft: 3, roster: [] },
+      { id, name: newPlayerName.trim(), points: initialPoints, scoutLeft: initialScoutLimit, roster: [] },
     ]);
     setNewPlayerName('');
   };
 
   const handleResetSession = () => {
     setParticipants((prev) =>
-      prev.map((p) => ({ ...p, points: initialPoints, scoutLeft: 3, roster: [] }))
+      prev.map((p) => ({ ...p, points: initialPoints, scoutLeft: initialScoutLimit, roster: [] }))
     );
     setCandidates([]);
     setTurnIndex(0);
@@ -341,6 +342,22 @@ export const DraftPage: React.FC = () => {
             value={initialPoints}
             onChange={(e) => setInitialPoints(Number(e.target.value))}
             className="w-20 px-2 py-1 rounded border text-xs"
+            style={{ borderColor: 'var(--border-color)' }}
+          />
+          <span className="text-xs">スカウト上限:</span>
+          <input
+            type="number"
+            min={3}
+            max={6}
+            value={initialScoutLimit}
+            onChange={(e) => {
+              const val = Math.min(6, Math.max(3, Number(e.target.value) || 3));
+              setInitialScoutLimit(val);
+              setParticipants((prev) =>
+                prev.map((p) => (p.roster.length === 0 ? { ...p, scoutLeft: val } : p))
+              );
+            }}
+            className="w-14 px-2 py-1 rounded border text-xs"
             style={{ borderColor: 'var(--border-color)' }}
           />
           <span className="text-xs">上限枠:</span>
