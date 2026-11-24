@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/pokemon-champions-roulette/sw.js', { scope: '/pokemon-champions-roulette/' })})}
