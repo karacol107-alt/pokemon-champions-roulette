@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { Pokemon } from '../types';
-import { Gavel, RefreshCw, Save, ShieldAlert, CheckCircle2, Coins, ArrowUpCircle } from 'lucide-react';
+import { Gavel, RefreshCw, Save, ShieldAlert, CheckCircle2, Coins, ArrowUpCircle, Shuffle } from 'lucide-react';
 
 interface AcquiredPokemon {
   pokemon: Pokemon;
@@ -70,6 +70,20 @@ export const DraftPage: React.FC = () => {
       { id, name: newPlayerName.trim(), points: initialPoints, scoutLeft: initialScoutLimit, roster: [] },
     ]);
     setNewPlayerName('');
+  };
+
+  const handleShuffleParticipants = () => {
+    if (participants.length < 2) return;
+    const shuffled = [...participants];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    setParticipants(shuffled);
+    setTurnIndex(0);
+    const orderText = shuffled.map((p, i) => `${i + 1}.${p.name}`).join(' → ');
+    setLogs((prev) => [`[順番決定] ${orderText}`, ...prev]);
+    showToast(`順番をシャッフルしました（1番手: ${shuffled[0].name}）`);
   };
 
   const handleResetSession = () => {
@@ -336,6 +350,17 @@ export const DraftPage: React.FC = () => {
             style={{ backgroundColor: 'var(--color-c)' }}
           >
             追加
+          </button>
+          <button
+            type="button"
+            onClick={handleShuffleParticipants}
+            disabled={participants.length < 2}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold border hover:opacity-80 disabled:opacity-40 cursor-pointer"
+            style={{ borderColor: 'var(--color-c)', color: 'var(--color-c)', backgroundColor: 'var(--bg-main)' }}
+            title="参加者の選択順・表示順をランダムに並び替え"
+          >
+            <Shuffle size={14} />
+            <span>順番シャッフル</span>
           </button>
           <span className="text-xs ml-auto opacity-75">初期pt:</span>
           <input
