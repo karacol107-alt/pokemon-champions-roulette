@@ -204,6 +204,9 @@ export const TeamBuilderPage: React.FC<TeamBuilderPageProps> = ({ inheritedChall
     showToast('チームを保存データ・履歴に保存しました！');
   };
 
+  const [dismissedChallenge, setDismissedChallenge] = useState<string | null>(null);
+  const activeInheritedChallenge = inheritedChallenge && inheritedChallenge !== dismissedChallenge ? inheritedChallenge : null;
+
   return (
     <div className="space-y-6">
       <header>
@@ -215,10 +218,25 @@ export const TeamBuilderPage: React.FC<TeamBuilderPageProps> = ({ inheritedChall
         </p>
       </header>
 
-      {inheritedChallenge && (
-        <div className="p-3.5 rounded-xl border text-sm" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-a)' }}>
-          <span className="font-bold" style={{ color: 'var(--color-a)' }}>引き継ぎ企画：</span>
-          <span>{inheritedChallenge}</span>
+      {activeInheritedChallenge && (
+        <div className="p-3.5 rounded-xl border text-sm flex items-center justify-between gap-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-a)' }}>
+          <div>
+            <span className="font-bold" style={{ color: 'var(--color-a)' }}>引き継ぎ企画：</span>
+            <span>{activeInheritedChallenge}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDismissedChallenge(inheritedChallenge || null);
+              sessionStorage.removeItem('inheritedChallenge');
+              localStorage.removeItem('inheritedChallenge');
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold border hover:opacity-80 cursor-pointer"
+            style={{ borderColor: 'var(--color-a)', color: 'var(--color-a)' }}
+            title="引き継ぎ企画を解除"
+          >
+            × 解除
+          </button>
         </div>
       )}
 
