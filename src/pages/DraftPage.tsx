@@ -22,14 +22,15 @@ export const DraftPage: React.FC = () => {
   const availablePool = allPokemons.filter((p) => p.isAvailableInChampions);
 
   const [mode, setMode] = useState<'auction' | 'scout' | 'gacha' | 'random'>('auction');
-  const [participants, setParticipants] = useState<Participant[]>([
-    { id: 'p1', name: 'プレイヤー1', points: 1000, scoutLeft: initialScoutLimit, roster: [] },
-    { id: 'p2', name: 'プレイヤー2', points: 1000, scoutLeft: initialScoutLimit, roster: [] },
-  ]);
-  const [newPlayerName, setNewPlayerName] = useState('');
   const [initialPoints, setInitialPoints] = useState(1000);
   const [maxRosterSize, setMaxRosterSize] = useState(6);
   const [initialScoutLimit, setInitialScoutLimit] = useState(3);
+
+  const [participants, setParticipants] = useState<Participant[]>([
+    { id: 'p1', name: 'プレイヤー1', points: 1000, scoutLeft: 3, roster: [] },
+    { id: 'p2', name: 'プレイヤー2', points: 1000, scoutLeft: 3, roster: [] },
+  ]);
+  const [newPlayerName, setNewPlayerName] = useState('');
 
   // 進行管理ステート
   const [turnIndex, setTurnIndex] = useState(0);
@@ -163,7 +164,7 @@ export const DraftPage: React.FC = () => {
   const handleSellPokemon = (participantId: string, item: AcquiredPokemon) => {
     const refund = Math.floor(item.purchasePrice / 2);
     if (
-      !confirm(
+      !window.confirm(
         `${item.pokemon.nameJa}（${item.pokemon.formName}）を売却しますか？\n購入額 ${item.purchasePrice}pt の半額（+${refund}pt）が返還されます。`
       )
     ) {
@@ -190,7 +191,7 @@ export const DraftPage: React.FC = () => {
 
   // スカウト・ガチャ・ランダム指名での獲得処理
   const handlePickPokemon = (pokemon: Pokemon) => {
-    const currentPlayer = participants[turnIndex % participants.length];
+    const currentPlayer = participants.length > 0 ? participants[turnIndex % participants.length] : undefined;
     if (!currentPlayer) return;
 
     if (mode === 'scout' && currentPlayer.scoutLeft <= 0) {
@@ -232,7 +233,7 @@ export const DraftPage: React.FC = () => {
           memo: `禁止:${ruleBannedText} / 先発:${ruleFixedLead} / 勝敗後:${ruleAfterBattle}`,
           members: p.roster.map((item) => ({
             pokemon: item.pokemon,
-            ability: item.pokemon.abilities[0],
+            ability: item.pokemon.abilities?.[0] || '',
             moves: [],
           })),
           createdAt: new Date().toLocaleString('ja-JP'),
@@ -245,7 +246,7 @@ export const DraftPage: React.FC = () => {
     }
   };
 
-  const currentPlayer = participants[turnIndex % participants.length];
+  const currentPlayer = participants.length > 0 ? participants[turnIndex % participants.length] : undefined;
   const highestBidder = participants.find((p) => p.id === highestBidderId);
 
   return (
@@ -344,7 +345,7 @@ export const DraftPage: React.FC = () => {
             className="w-20 px-2 py-1 rounded border text-xs"
             style={{ borderColor: 'var(--border-color)' }}
           />
-          <span className="text-xs">スカウト上限:</span>
+          <span className="text-xs">スカウト上限 (3〜6):</span>
           <input
             type="number"
             min={3}
@@ -372,7 +373,7 @@ export const DraftPage: React.FC = () => {
           />
         </div>
 
-        {/* 参加者ごとの所持状況（半額売却機能付き） */}
+        {/* 参加者ごとの所持状況 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           {participants.map((p, idx) => {
             const isTurn = mode !== 'auction' && currentPlayer?.id === p.id;
@@ -469,9 +470,9 @@ export const DraftPage: React.FC = () => {
             <Gavel size={18} style={{ color: 'var(--color-c)' }} />
             <span>
               {mode === 'auction' && 'オークション出品抽選・リアルタイム入札'}
-              {mode === 'scout' && `スカウト候補抽選（手番: ${currentPlayer?.name}）`}
-              {mode === 'gacha' && `ガチャ排出（手番: ${currentPlayer?.name}）`}
-              {mode === 'random' && `ランダムドラフト指名候補（手番: ${currentPlayer?.name}）`}
+              {mode === 'scout' && `スカウト候補抽選（手番: ${currentPlayer?.name || '-'}）`}
+              {mode === 'gacha' && `ガチャ排出（手番: ${currentPlayer?.name || '-'}）`}
+              {mode === 'random' && `ランダムドラフト指名候補（手番: ${currentPlayer?.name || '-'}）`}
             </span>
           </div>
 
