@@ -52,7 +52,7 @@ export const TournamentPage: React.FC = () => {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [format, setFormat] = useState<TournamentRecord['format']>('個人総当たり');
+  const [format, setFormat] = useState<TournamentRecord['format']>('総当たり' as TournamentRecord['format']);
   const [entryType, setEntryType] = useState<'solo' | 'team'>('solo');
   const [battleRule, setBattleRule] = useState<'シングル' | 'ダブル' | '混合'>('シングル');
 
@@ -712,17 +712,11 @@ export const TournamentPage: React.FC = () => {
             <label className="block text-xs font-bold mb-1">大会形式</label>
             <select
               value={format}
-              onChange={(e) => {
-                const nextFmt = e.target.value as TournamentRecord['format'];
-                setFormat(nextFmt);
-                if (nextFmt === 'チーム総当たり') setEntryType('team');
-                if (nextFmt === '個人総当たり') setEntryType('solo');
-              }}
+              onChange={(e) => setFormat(e.target.value as TournamentRecord['format'])}
               className="w-full px-3 py-2 rounded-lg border font-bold"
               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
             >
-              <option value="個人総当たり">個人総当たり</option>
-              <option value="チーム総当たり">チーム総当たり</option>
+              <option value="総当たり">総当たり</option>
               <option value="トーナメント">トーナメント</option>
               <option value="勝ち抜き">勝ち抜き</option>
               <option value="ポイント制">ポイント制</option>
