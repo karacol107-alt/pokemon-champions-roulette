@@ -1,7 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type TournamentRecord, type TournamentMatch } from '../db/database';
-import { Trophy, Plus, Trash2, CheckCircle2, Users, ClipboardList, ChevronDown, ChevronUp, UserPlus, X } from 'lucide-react';
+import {
+  Trophy,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Users,
+  ClipboardList,
+  ChevronDown,
+  ChevronUp,
+  UserPlus,
+  X,
+  Download,
+  Upload,
+  Shuffle,
+  FileSpreadsheet,
+} from 'lucide-react';
 
 interface IndividualBout {
   id: string;
@@ -35,7 +50,7 @@ export const TournamentPage: React.FC = () => {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [format, setFormat] = useState<TournamentRecord['format']>('個人総当たり');
+  const [format, setFormat] = useState<TournamentRecord['format']>('チーム総当たり');
   const [battleRule, setBattleRule] = useState<'シングル' | 'ダブル' | '混合'>('シングル');
 
   // 個人戦用 入力ステート
@@ -52,6 +67,19 @@ export const TournamentPage: React.FC = () => {
     { id: 't-init-1', teamName: 'チームA', members: ['選手1', '選手2', '選手3'] },
     { id: 't-init-2', teamName: 'チームB', members: ['選手4', '選手5', '選手6'] },
   ]);
+
+  // チーム一括登録ツール用ステート（1: CSV / 2: ランダムチーム分け）
+  const [bulkToolTab, setBulkToolTab] = useState<'none' | 'csv' | 'shuffle'>('none');
+  const [csvPasteText, setCsvPasteText] = useState(
+    'チーム名,先鋒,中堅,大将\nチームA,選手1,選手2,選手3\nチームB,選手4,選手5,選手6'
+  );
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [shufflePoolText, setShufflePoolText] = useState(
+    'プレイヤー1\nプレイヤー2\nプレイヤー3\nプレイヤー4\nプレイヤー5\nプレイヤー6'
+  );
+  const [shuffleSplitMode, setShuffleSplitMode] = useState<'perTeam' | 'teamCount'>('perTeam');
+  const [shuffleNumber, setShuffleNumber] = useState<number>(3);
 
   // 進行中の詳細編集用ステート
   const [expandedMatchIds, setExpandedMatchIds] = useState<Record<string, boolean>>({});
@@ -72,7 +100,7 @@ export const TournamentPage: React.FC = () => {
   // チーム戦リスト操作
   const handleAddTeamBlock = () => {
     const nextNum = teamInputs.length + 1;
-    const label = String.fromCharCode(64 + nextNum); // C, D, E...
+    const label = String.fromCharCode(64 + nextNum);
     setTeamInputs((prev) => [
       ...prev,
       {
@@ -81,6 +109,144 @@ export const TournamentPage: React.FC = () => {
         members: ['', '', ''],
       },
     ]);
+  };
+
+  // 1. CSVテンプレートダウンロード（Excel文字化け防止のBOM付きUTF-8）
+  const handleDownloadCsvTemplate = () => {
+    const csvContent =
+      '\uFEFF' +
+      [
+        'チーム名,先鋒,中堅,大将',
+        'チームA,選手1,選手2,選手3',
+        'チームB,選手4,選手5,選手6',
+        'チームC,選手7,選手8,選手9',
+      ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'team_roster_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // CSVテキストをパースしてチーム入力へ反映
+  const applyCsvTextToTeams = (rawText: string) => {
+    const lines = rawText
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      alert('読み込むデータが空です。');
+      return;
+    }
+
+    const parsed: TeamDraftInput[] = [];
+    lines.forEach((line, idx) => {
+      // ヘッダー行（1行目が「チーム名,...」）は自動スキップ
+      if (idx === 0 && (line.startsWith('チーム名,') || line.startsWith('チーム名\t'))) {
+        return;
+      }
+
+      // 「チームA: 選手1, 選手2」形式と「チームA,選手1,選手2」CSV形式の両方に対応
+      let teamName = '';
+      let members: string[] = [];
+
+      if (line.includes(':') || line.includes('：')) {
+        const sep = line.includes('：') ? '：' : ':';
+        const [tPart, mPart] = line.split(sep);
+        teamName = tPart.trim();
+        members = (mPart || '')
+          .split(/[,、\t/／]/)
+          .map((m) => m.trim())
+          .filter(Boolean);
+      } else {
+        const cols = line.split(/[,、\t]/).map((c) => c.trim());
+        teamName = cols[0] || '';
+        members = cols.slice(1).filter(Boolean);
+      }
+
+      if (teamName) {
+        parsed.push({
+          id: `t-csv-${Date.now()}-${idx}`,
+          teamName,
+          members: members.length > 0 ? members : [''],
+        });
+      }
+    });
+
+    if (parsed.length === 0) {
+      alert('有効なチーム行が見つかりませんでした。「チーム名,メンバー1,メンバー2,メンバー3」の形式で入力してください。');
+      return;
+    }
+
+    setTeamInputs(parsed);
+    setBulkToolTab('none');
+  };
+
+  // CSVファイルアップロード処理
+  const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || '');
+      setCsvPasteText(text.replace(/^\uFEFF/, ''));
+      applyCsvTextToTeams(text);
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+  };
+
+  // 2. 参加者リストからのランダム自動チーム分け
+  const handleGenerateRandomTeams = () => {
+    const names = shufflePoolText
+      .split(/[\r\n,、\t]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (names.length < 2) {
+      alert('チーム分けする参加者を2名以上入力してください。');
+      return;
+    }
+
+    // Fisher-Yates シャッフル
+    const shuffled = [...names];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    const groups: string[][] = [];
+    if (shuffleSplitMode === 'perTeam') {
+      const size = Math.max(1, shuffleNumber);
+      for (let i = 0; i < shuffled.length; i += size) {
+        groups.push(shuffled.slice(i, i + size));
+      }
+    } else {
+      const count = Math.min(shuffled.length, Math.max(2, shuffleNumber));
+      for (let i = 0; i < count; i++) groups.push([]);
+      shuffled.forEach((member, idx) => {
+        groups[idx % count].push(member);
+      });
+    }
+
+    const generated: TeamDraftInput[] = groups.map((members, idx) => {
+      const label = idx < 26 ? String.fromCharCode(65 + idx) : `${idx + 1}`;
+      return {
+        id: `t-rand-${Date.now()}-${idx}`,
+        teamName: `チーム${label}`,
+        members,
+      };
+    });
+
+    setTeamInputs(generated);
+    setBulkToolTab('none');
   };
 
   const handleCreateTournament = async (e: React.FormEvent) => {
@@ -447,8 +613,8 @@ export const TournamentPage: React.FC = () => {
               className="w-full px-3 py-2 rounded-lg border font-bold"
               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
             >
-              <option value="個人総当たり">個人総当たり</option>
               <option value="チーム総当たり">チーム総当たり（チーム戦）</option>
+              <option value="個人総当たり">個人総当たり</option>
               <option value="トーナメント">トーナメント</option>
               <option value="勝ち抜き">勝ち抜き</option>
               <option value="ポイント制">ポイント制</option>
@@ -477,22 +643,201 @@ export const TournamentPage: React.FC = () => {
             className="p-4 rounded-xl border space-y-3"
             style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-bold flex items-center gap-1.5">
                 <Users size={15} style={{ color: 'var(--color-d)' }} />
                 <span>出場チーム・メンバー設定（現在 {teamInputs.length}チーム）</span>
               </label>
-              <button
-                type="button"
-                onClick={handleAddTeamBlock}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: 'var(--color-d)' }}
-              >
-                <Plus size={14} />
-                <span>チームを追加</span>
-              </button>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBulkToolTab((prev) => (prev === 'csv' ? 'none' : 'csv'))}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer"
+                  style={{
+                    backgroundColor: bulkToolTab === 'csv' ? 'var(--color-d)' : 'var(--bg-card)',
+                    color: bulkToolTab === 'csv' ? '#ffffff' : 'var(--color-d)',
+                    borderColor: 'var(--color-d)',
+                  }}
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>1. CSV一括登録</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBulkToolTab((prev) => (prev === 'shuffle' ? 'none' : 'shuffle'))}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer"
+                  style={{
+                    backgroundColor: bulkToolTab === 'shuffle' ? 'var(--color-d)' : 'var(--bg-card)',
+                    color: bulkToolTab === 'shuffle' ? '#ffffff' : 'var(--color-d)',
+                    borderColor: 'var(--color-d)',
+                  }}
+                >
+                  <Shuffle size={14} />
+                  <span>2. 参加者から自動チーム分け</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddTeamBlock}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
+                  style={{ backgroundColor: 'var(--color-d)' }}
+                >
+                  <Plus size={14} />
+                  <span>チームを追加</span>
+                </button>
+              </div>
             </div>
 
+            {/* 1. CSV一括登録・テンプレートDLパネル */}
+            {bulkToolTab === 'csv' && (
+              <div
+                className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
+                style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-d)' }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <FileSpreadsheet size={15} style={{ color: 'var(--color-d)' }} />
+                    <span>CSVフォーマットで一括登録（Excel・スプレッドシート対応）</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadCsvTemplate}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold border hover:opacity-80 cursor-pointer"
+                      style={{ borderColor: 'var(--color-d)', color: 'var(--color-d)', backgroundColor: 'var(--bg-main)' }}
+                    >
+                      <Download size={13} />
+                      <span>CSVテンプレートをダウンロード</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => csvFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer"
+                      style={{ backgroundColor: 'var(--color-d)' }}
+                    >
+                      <Upload size={13} />
+                      <span>CSVファイルを選択して反映</span>
+                    </button>
+                    <input
+                      ref={csvFileInputRef}
+                      type="file"
+                      accept=".csv,.txt"
+                      onChange={handleCsvFileUpload}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+
+                <p className="opacity-75">
+                  形式: <code>チーム名,先鋒,中堅,大将</code>（1行につき1チーム。Excelで編集してCSV保存したファイルをそのまま読み込むか、下に直接貼り付けて「テキストを反映」を押してください）
+                </p>
+
+                <textarea
+                  rows={4}
+                  value={csvPasteText}
+                  onChange={(e) => setCsvPasteText(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border font-mono text-xs"
+                  style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                />
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkToolTab('none')}
+                    className="px-3 py-1.5 rounded-lg border font-bold cursor-pointer"
+                    style={{ borderColor: 'var(--border-color)' }}
+                  >
+                    閉じる
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyCsvTextToTeams(csvPasteText)}
+                    className="px-4 py-1.5 rounded-lg font-bold text-white cursor-pointer"
+                    style={{ backgroundColor: 'var(--color-d)' }}
+                  >
+                    このCSVテキストをチーム枠へ反映
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 2. 参加者リストからの自動ランダムチーム分けパネル */}
+            {bulkToolTab === 'shuffle' && (
+              <div
+                className="p-3.5 rounded-xl border-2 space-y-3 text-xs"
+                style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--color-d)' }}
+              >
+                <div className="font-bold flex items-center gap-1.5">
+                  <Shuffle size={15} style={{ color: 'var(--color-d)' }} />
+                  <span>参加者名リストからランダム自動チーム分け</span>
+                </div>
+
+                <p className="opacity-75">
+                  参加者の名前を改行（またはカンマ）区切りで貼り付けると、ランダムにシャッフルしてチームA・チームB…へ自動振り分けします。
+                </p>
+
+                <textarea
+                  rows={4}
+                  value={shufflePoolText}
+                  onChange={(e) => setShufflePoolText(e.target.value)}
+                  placeholder={'プレイヤー1\nプレイヤー2\nプレイヤー3\nプレイヤー4\nプレイヤー5\nプレイヤー6'}
+                  className="w-full px-3 py-2 rounded-lg border text-xs"
+                  style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                />
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={shuffleSplitMode}
+                    onChange={(e) => setShuffleSplitMode(e.target.value as 'perTeam' | 'teamCount')}
+                    className="px-2.5 py-1.5 rounded-lg border font-bold"
+                    style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                  >
+                    <option value="perTeam">1チームあたりの人数で分ける</option>
+                    <option value="teamCount">作成するチーム数で均等分け</option>
+                  </select>
+
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={shuffleNumber}
+                      onChange={(e) => setShuffleNumber(Number(e.target.value) || 2)}
+                      className="w-16 px-2 py-1.5 rounded-lg border text-center font-mono font-bold"
+                      style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                    />
+                    <span className="font-bold">
+                      {shuffleSplitMode === 'perTeam' ? '人ずつ編成' : 'チームに分割'}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => setBulkToolTab('none')}
+                      className="px-3 py-1.5 rounded-lg border font-bold cursor-pointer"
+                      style={{ borderColor: 'var(--border-color)' }}
+                    >
+                      閉じる
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGenerateRandomTeams}
+                      className="inline-flex items-center gap-1 px-4 py-1.5 rounded-lg font-bold text-white cursor-pointer"
+                      style={{ backgroundColor: 'var(--color-d)' }}
+                    >
+                      <Shuffle size={13} />
+                      <span>ランダムにチーム分けして反映</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 各チームの個別編集カード */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {teamInputs.map((team, tIdx) => (
                 <div
