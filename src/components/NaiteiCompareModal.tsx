@@ -1,19 +1,18 @@
 import React, { useState, useMemo } from 'react';
-import { X, ExternalLink, CheckCircle2, AlertCircle, RefreshCw, PlusCircle } from 'lucide-react';
+import { X, ExternalLink, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { db } from '../db/database';
-import type { PokemonData } from '../types';
+import type { Pokemon } from '../types';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  pokemons: PokemonData[];
-  onUpdated: () => Promise<void>;
+  pokemons: Pokemon[];
+  onUpdated?: () => void | Promise<void>;
 }
 
 const REFERENCE_URL = 'https://yakkun.com/ch/zukan/offer/';
 
-// 表記ゆれ（括弧の全角半角、アローラ〇〇 vs 〇〇(アローラ) 等）を生成
-function buildAliases(p: PokemonData): string[] {
+function buildAliases(p: Pokemon): string[] {
   const name = p.nameJa;
   const form = p.formName || '通常';
   const aliases = new Set<string>();
@@ -82,16 +81,15 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
     const text = pastedText.trim();
     if (!text) return null;
 
-    const toEnable: PokemonData[] = [];
-    const toDisable: PokemonData[] = [];
-    const matchedAll: PokemonData[] = [];
+    const toEnable: Pokemon[] = [];
+    const toDisable: Pokemon[] = [];
+    const matchedAll: Pokemon[] = [];
 
     for (const p of pokemons) {
       const aliases = buildAliases(p);
       let isMatched = false;
 
       for (const kw of aliases) {
-        // 前後にカタカナ・漢字が連続しない単語境界で厳密判定（「メガニウム」が「メガ」等に誤爆するのを防止）
         const regex = new RegExp(`(?<![ァ-ヶー一-龠])${escapeRegExp(kw)}(?![ァ-ヶー一-龠])`);
         if (regex.test(text)) {
           isMatched = true;
@@ -111,7 +109,6 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
       }
     }
 
-    // テキスト内に「メガ〇〇」や「No.XXX 名前」が含まれるがDBに未登録のものを簡易検出
     const dbNames = new Set<string>();
     pokemons.forEach(p => {
       dbNames.add(p.nameJa);
@@ -143,7 +140,7 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
     setDoneMessage(null);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const updates: PokemonData[] = [];
+      const updates: Pokemon[] = [];
 
       for (const p of comparison.toEnable) {
         updates.push({ ...p, isAvailableInChampions: true, updatedAt: today });
@@ -154,7 +151,7 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
 
       if (updates.length > 0) {
         await db.pokemons.bulkPut(updates);
-        await onUpdated();
+        if (onUpdated) await onUpdated();
       }
 
       setDoneMessage(
@@ -171,7 +168,6 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
         className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-xl shadow-xl border"
         style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-main)' }}
       >
-        {/* ヘッダー */}
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-color)' }}>
           <div>
             <h2 className="text-lg font-bold">内定ポケモン比較ツール</h2>
@@ -184,9 +180,7 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
           </button>
         </div>
 
-        {/* 本文 */}
         <div className="p-5 overflow-y-auto space-y-4">
-          {/* ステップ案内 */}
           <div className="p-3.5 rounded-lg border text-sm space-y-2" style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold">手順1：参照ページを開いて全選択コピー（Ctrl+A → Ctrl+C）</span>
@@ -202,11 +196,10 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
               </a>
             </div>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              ※ブラウザのセキュリティ制限によりアプリから直接ページを取得できないため、開いたページを丸ごとコピーして下の欄に貼り付けてください（余計なメニュー文字が混ざっていても自動でポケモン名だけを抽出します）。
+              ※ブラウザのセキュリティ制限によりアプリから直接ページを取得できないため、開いたページを丸ごとコピーして下の欄に貼り付けてください。
             </p>
           </div>
 
-          {/* 貼り付けエリア */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-semibold">手順2：コピーしたページ内容をここに貼り付け</label>
@@ -230,7 +223,6 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
             />
           </div>
 
-          {/* 比較結果プレビュー */}
           {comparison && (
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -301,7 +293,6 @@ export default function NaiteiCompareModal({ isOpen, onClose, pokemons, onUpdate
           )}
         </div>
 
-        {/* フッター */}
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t" style={{ borderColor: 'var(--border-color)' }}>
           <button
             onClick={onClose}

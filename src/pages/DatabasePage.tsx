@@ -22,6 +22,7 @@ export const DatabasePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterAvailable, setFilterAvailable] = useState<'all' | 'available' | 'unavailable'>('all');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [isCompareOpen, setIsCompareOpen] = useState(false);
 
   // バックアップ復元確認用ステート
   const [pendingBackup, setPendingBackup] = useState<BackupPayload | null>(null);
@@ -963,7 +964,6 @@ export const DatabasePage: React.FC = () => {
         isOpen={isCompareOpen}
         onClose={() => setIsCompareOpen(false)}
         pokemons={pokemons}
-        onUpdated={loadPokemons}
       />
     </div>
   );
