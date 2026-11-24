@@ -1,3 +1,4 @@
+import NaiteiCompareModal from "../components/NaiteiCompareModal";
 import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
@@ -357,6 +358,13 @@ export const DatabasePage: React.FC = () => {
             <Upload size={16} />
             <span>JSON復元</span>
           </button>
+            <button
+              onClick={() => setIsCompareOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-white shadow-sm hover:opacity-90"
+              style={{ backgroundColor: "#315FA9" }}
+            >
+              内定との比較
+            </button>
           <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileSelect} className="hidden" />
         </div>
       </header>
@@ -950,6 +958,13 @@ export const DatabasePage: React.FC = () => {
           </div>
         )
       )}
+    
+      <NaiteiCompareModal
+        isOpen={isCompareOpen}
+        onClose={() => setIsCompareOpen(false)}
+        pokemons={pokemons}
+        onUpdated={loadPokemons}
+      />
     </div>
   );
 };
