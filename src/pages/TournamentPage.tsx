@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type TournamentRecord, type TournamentMatch } from '../db/database';
-import { Trophy, Plus, Trash2, CheckCircle2, Users, ClipboardList, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
+import { Trophy, Plus, Trash2, CheckCircle2, Users, ClipboardList, ChevronDown, ChevronUp, UserPlus, X } from 'lucide-react';
 
 interface IndividualBout {
   id: string;
@@ -24,14 +24,34 @@ interface ExtendedTournamentRecord extends TournamentRecord {
   matchDetails?: Record<string, DetailedMatchMeta>;
 }
 
+interface TeamDraftInput {
+  id: string;
+  teamName: string;
+  members: string[];
+}
+
 export const TournamentPage: React.FC = () => {
   const tournaments = (useLiveQuery(() => db.tournaments.reverse().toArray(), []) || []) as ExtendedTournamentRecord[];
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [format, setFormat] = useState<TournamentRecord['format']>('チーム総当たり');
+  const [format, setFormat] = useState<TournamentRecord['format']>('個人総当たり');
   const [battleRule, setBattleRule] = useState<'シングル' | 'ダブル' | '混合'>('シングル');
-  const [playersText, setPlayersText] = useState('チームA: 選手1, 選手2, 選手3\nチームB: 選手4, 選手5, 選手6');
+
+  // 個人戦用 入力ステート
+  const [soloPlayers, setSoloPlayers] = useState<string[]>([
+    'プレイヤー1',
+    'プレイヤー2',
+    'プレイヤー3',
+    'プレイヤー4',
+  ]);
+  const [newSoloName, setNewSoloName] = useState('');
+
+  // チーム戦用 入力ステート
+  const [teamInputs, setTeamInputs] = useState<TeamDraftInput[]>([
+    { id: 't-init-1', teamName: 'チームA', members: ['選手1', '選手2', '選手3'] },
+    { id: 't-init-2', teamName: 'チームB', members: ['選手4', '選手5', '選手6'] },
+  ]);
 
   // 進行中の詳細編集用ステート
   const [expandedMatchIds, setExpandedMatchIds] = useState<Record<string, boolean>>({});
@@ -41,38 +61,58 @@ export const TournamentPage: React.FC = () => {
 
   const isTeamFormat = (fmt: string) => fmt.includes('チーム');
 
+  // 個人戦リスト操作
+  const handleAddSoloPlayer = () => {
+    const trimmed = newSoloName.trim();
+    if (!trimmed) return;
+    setSoloPlayers((prev) => [...prev, trimmed]);
+    setNewSoloName('');
+  };
+
+  // チーム戦リスト操作
+  const handleAddTeamBlock = () => {
+    const nextNum = teamInputs.length + 1;
+    const label = String.fromCharCode(64 + nextNum); // C, D, E...
+    setTeamInputs((prev) => [
+      ...prev,
+      {
+        id: `t-${Date.now()}`,
+        teamName: `チーム${nextNum <= 26 ? label : nextNum}`,
+        members: ['', '', ''],
+      },
+    ]);
+  };
+
   const handleCreateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
-    const lines = playersText
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    if (lines.length < 2) {
-      alert('参加者またはチームを2件以上入力してください。');
-      return;
-    }
 
     const participants: string[] = [];
     const teamRosters: Record<string, string[]> = {};
 
-    for (const line of lines) {
-      if (line.includes(':') || line.includes('：')) {
-        const sep = line.includes('：') ? '：' : ':';
-        const [teamPart, membersPart] = line.split(sep);
-        const teamName = teamPart.trim();
-        const members = (membersPart || '')
-          .split(/[,、/／]/)
-          .map((m) => m.trim())
-          .filter(Boolean);
-        participants.push(teamName);
-        teamRosters[teamName] = members.length > 0 ? members : [`${teamName} メンバー1`];
-      } else {
-        participants.push(line);
-        if (isTeamFormat(format)) {
-          teamRosters[line] = [`${line} 選手1`, `${line} 選手2`, `${line} 選手3`];
-        }
+    if (isTeamFormat(format)) {
+      const validTeams = teamInputs
+        .map((t) => ({
+          teamName: t.teamName.trim(),
+          members: t.members.map((m) => m.trim()).filter(Boolean),
+        }))
+        .filter((t) => t.teamName.length > 0);
+
+      if (validTeams.length < 2) {
+        alert('チームを2チーム以上入力してください。');
+        return;
       }
+
+      for (const t of validTeams) {
+        participants.push(t.teamName);
+        teamRosters[t.teamName] = t.members.length > 0 ? t.members : [`${t.teamName} 選手1`];
+      }
+    } else {
+      const validPlayers = soloPlayers.map((s) => s.trim()).filter(Boolean);
+      if (validPlayers.length < 2) {
+        alert('参加者を2名以上入力してください。');
+        return;
+      }
+      participants.push(...validPlayers);
     }
 
     const matches: TournamentMatch[] = [];
@@ -143,7 +183,7 @@ export const TournamentPage: React.FC = () => {
       matches,
       status: '進行中',
       createdAt: new Date().toLocaleString('ja-JP'),
-      teamRosters,
+      teamRosters: isTeamFormat(format) ? teamRosters : undefined,
       matchDetails,
     };
 
@@ -152,7 +192,7 @@ export const TournamentPage: React.FC = () => {
     setName('');
   };
 
-  // チームメンバーの追加・削除
+  // チームメンバーの追加・削除（進行中）
   const handleAddTeamMember = async (tournament: ExtendedTournamentRecord, teamName: string) => {
     const memberName = (newMemberInputs[teamName] || '').trim();
     if (!memberName) return;
@@ -313,7 +353,6 @@ export const TournamentPage: React.FC = () => {
       { member: string; team: string; wins: number; losses: number; remDiff: number; notes: string[] }
     >();
 
-    // 登録済みメンバーを初期化
     if (tournament.teamRosters) {
       Object.entries(tournament.teamRosters).forEach(([team, members]) => {
         members.forEach((m) => {
@@ -387,12 +426,13 @@ export const TournamentPage: React.FC = () => {
           <Plus size={18} style={{ color: 'var(--color-d)' }} />
           <span>新しい大会を作成</span>
         </h3>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
           <div>
             <label className="block text-xs font-bold mb-1">大会名</label>
             <input
               type="text"
-              placeholder="例：第1回 Championsチーム杯"
+              placeholder={isTeamFormat(format) ? '例：第1回 Championsチーム杯' : '例：第1回 Champions個人杯'}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border"
@@ -403,18 +443,12 @@ export const TournamentPage: React.FC = () => {
             <label className="block text-xs font-bold mb-1">大会形式</label>
             <select
               value={format}
-              onChange={(e) => {
-                const nextFmt = e.target.value as TournamentRecord['format'];
-                setFormat(nextFmt);
-                if (nextFmt.includes('チーム') && !playersText.includes(':')) {
-                  setPlayersText('チームA: 選手1, 選手2, 選手3\nチームB: 選手4, 選手5, 選手6');
-                }
-              }}
-              className="w-full px-3 py-2 rounded-lg border"
+              onChange={(e) => setFormat(e.target.value as TournamentRecord['format'])}
+              className="w-full px-3 py-2 rounded-lg border font-bold"
               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
             >
-              <option value="チーム総当たり">チーム総当たり</option>
               <option value="個人総当たり">個人総当たり</option>
+              <option value="チーム総当たり">チーム総当たり（チーム戦）</option>
               <option value="トーナメント">トーナメント</option>
               <option value="勝ち抜き">勝ち抜き</option>
               <option value="ポイント制">ポイント制</option>
@@ -436,25 +470,204 @@ export const TournamentPage: React.FC = () => {
             </select>
           </div>
         </div>
-        <div>
-          <label className="block text-xs font-bold mb-1">
-            {isTeamFormat(format)
-              ? 'チーム＆メンバーリスト（1行に1チーム。「チーム名: メンバー1, メンバー2, メンバー3」形式で入力）'
-              : '参加者・チームリスト（1行に1件）'}
-          </label>
-          <textarea
-            rows={3}
-            value={playersText}
-            onChange={(e) => setPlayersText(e.target.value)}
-            placeholder={
-              isTeamFormat(format)
-                ? 'チームA: 選手1, 選手2, 選手3\nチームB: 選手4, 選手5, 選手6'
-                : 'プレイヤー1\nプレイヤー2'
-            }
-            className="w-full px-3 py-2 rounded-lg border text-sm"
-            style={{ borderColor: 'var(--border-color)' }}
-          />
-        </div>
+
+        {/* 大会形式に応じた分かりやすい専用入力エリア */}
+        {isTeamFormat(format) ? (
+          <div
+            className="p-4 rounded-xl border space-y-3"
+            style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold flex items-center gap-1.5">
+                <Users size={15} style={{ color: 'var(--color-d)' }} />
+                <span>出場チーム・メンバー設定（現在 {teamInputs.length}チーム）</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleAddTeamBlock}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: 'var(--color-d)' }}
+              >
+                <Plus size={14} />
+                <span>チームを追加</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {teamInputs.map((team, tIdx) => (
+                <div
+                  key={team.id}
+                  className="p-3.5 rounded-xl border space-y-2.5"
+                  style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-xs font-bold px-2 py-1 rounded text-white shrink-0"
+                      style={{ backgroundColor: 'var(--color-d)' }}
+                    >
+                      チーム{tIdx + 1}
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="チーム名を入力"
+                      value={team.teamName}
+                      onChange={(e) =>
+                        setTeamInputs((prev) =>
+                          prev.map((item, idx) => (idx === tIdx ? { ...item, teamName: e.target.value } : item))
+                        )
+                      }
+                      className="flex-1 px-2.5 py-1.5 rounded-lg border text-sm font-bold"
+                      style={{ borderColor: 'var(--border-color)' }}
+                    />
+                    {teamInputs.length > 2 && (
+                      <button
+                        type="button"
+                        onClick={() => setTeamInputs((prev) => prev.filter((_, idx) => idx !== tIdx))}
+                        className="p-1 text-red-500 hover:opacity-75 cursor-pointer"
+                        title="このチームを削除"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 pl-1">
+                    <div className="text-[11px] font-bold opacity-70">所属メンバー（出場順）</div>
+                    {team.members.map((mem, mIdx) => (
+                      <div key={mIdx} className="flex items-center gap-1.5">
+                        <span className="text-xs opacity-60 w-10 shrink-0">
+                          {mIdx === 0 ? '先鋒' : mIdx === 1 ? '中堅' : mIdx === 2 ? '大将' : `${mIdx + 1}番手`}
+                        </span>
+                        <input
+                          type="text"
+                          placeholder={`メンバー${mIdx + 1}の名前`}
+                          value={mem}
+                          onChange={(e) =>
+                            setTeamInputs((prev) =>
+                              prev.map((item, idx) =>
+                                idx === tIdx
+                                  ? {
+                                      ...item,
+                                      members: item.members.map((m, mi) => (mi === mIdx ? e.target.value : m)),
+                                    }
+                                  : item
+                              )
+                            )
+                          }
+                          className="flex-1 px-2.5 py-1 rounded border text-xs"
+                          style={{ borderColor: 'var(--border-color)' }}
+                        />
+                        {team.members.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTeamInputs((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === tIdx
+                                    ? { ...item, members: item.members.filter((_, mi) => mi !== mIdx) }
+                                    : item
+                                )
+                              )
+                            }
+                            className="text-xs text-red-500 px-1 cursor-pointer"
+                            title="枠を削除"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTeamInputs((prev) =>
+                          prev.map((item, idx) =>
+                            idx === tIdx ? { ...item, members: [...item.members, ''] } : item
+                          )
+                        )
+                      }
+                      className="text-xs font-bold inline-flex items-center gap-1 pt-1 cursor-pointer hover:opacity-80"
+                      style={{ color: 'var(--color-d)' }}
+                    >
+                      <UserPlus size={13} />
+                      <span>メンバー枠を追加</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div
+            className="p-4 rounded-xl border space-y-3"
+            style={{ backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold">
+                参加プレイヤーリスト（現在 {soloPlayers.filter((p) => p.trim()).length}名）
+              </label>
+              <span className="text-[11px] opacity-70">※個人戦モード（1名ずつ登録）</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+              {soloPlayers.map((player, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border"
+                  style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+                >
+                  <span className="text-xs font-mono opacity-60">{idx + 1}.</span>
+                  <input
+                    type="text"
+                    value={player}
+                    placeholder={`プレイヤー${idx + 1}`}
+                    onChange={(e) =>
+                      setSoloPlayers((prev) => prev.map((p, i) => (i === idx ? e.target.value : p)))
+                    }
+                    className="flex-1 min-w-0 text-xs font-medium bg-transparent focus:outline-none"
+                  />
+                  {soloPlayers.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => setSoloPlayers((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-red-500 hover:opacity-75 cursor-pointer"
+                      title="削除"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-1 max-w-md">
+              <input
+                type="text"
+                placeholder="新しいプレイヤー名を入力..."
+                value={newSoloName}
+                onChange={(e) => setNewSoloName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSoloPlayer();
+                  }
+                }}
+                className="flex-1 px-3 py-1.5 rounded-lg border text-xs"
+                style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+              />
+              <button
+                type="button"
+                onClick={handleAddSoloPlayer}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: 'var(--color-d)' }}
+              >
+                <Plus size={14} />
+                <span>参加者を追加</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           type="submit"
           className="px-5 py-2.5 rounded-lg text-sm font-bold text-white cursor-pointer"
@@ -643,7 +856,7 @@ export const TournamentPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* チーム全体の勝敗ボタン */}
+                    {/* チーム・個人全体の勝敗ボタン */}
                     <div className="flex items-center justify-between gap-2 text-sm font-bold">
                       <button
                         onClick={() =>
@@ -681,7 +894,7 @@ export const TournamentPage: React.FC = () => {
                         style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-bold">個人別対戦レコード（入力すると本数が自動集計されます）</span>
+                          <span className="font-bold">詳細対戦レコード（入力すると本数が自動集計されます）</span>
                           <button
                             type="button"
                             onClick={() => {
@@ -721,7 +934,6 @@ export const TournamentPage: React.FC = () => {
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-bold w-14">{bout.label}</span>
 
-                                {/* チーム1メンバー選択 */}
                                 <select
                                   value={bout.p1Member}
                                   onChange={(e) => {
@@ -760,7 +972,6 @@ export const TournamentPage: React.FC = () => {
 
                                 <span className="opacity-50">vs</span>
 
-                                {/* チーム2メンバー選択 */}
                                 <select
                                   value={bout.p2Member}
                                   onChange={(e) => {
@@ -797,7 +1008,6 @@ export const TournamentPage: React.FC = () => {
                                   勝
                                 </button>
 
-                                {/* 残ポケ数入力 */}
                                 <div className="flex items-center gap-1 ml-auto">
                                   <span>残ポケ:</span>
                                   <input
@@ -832,7 +1042,6 @@ export const TournamentPage: React.FC = () => {
                                 </div>
                               </div>
 
-                              {/* 試合詳細メモ（使用軸・MVP・選出など） */}
                               <input
                                 type="text"
                                 placeholder="詳細戦績メモ（例：ガブリアス3タテ / 選出: カイリュー・サーフゴー・ウーラオス）"
@@ -857,11 +1066,11 @@ export const TournamentPage: React.FC = () => {
             </div>
           </div>
 
-          {/* リアルタイム順位表（チーム・参加者） */}
+          {/* リアルタイム順位表 */}
           <div className="space-y-2 pt-2">
             <h4 className="font-bold text-sm flex items-center gap-1.5">
               <Trophy size={16} style={{ color: 'var(--color-d)' }} />
-              <span>リアルタイム順位表（チーム / 参加者）</span>
+              <span>リアルタイム順位表（{isTeamFormat(activeTournament.format) ? 'チーム' : '参加者'}）</span>
             </h4>
             <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
               <table className="w-full text-left text-sm border-collapse">
@@ -871,7 +1080,7 @@ export const TournamentPage: React.FC = () => {
                     style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-color)' }}
                   >
                     <th className="p-2.5">順位</th>
-                    <th className="p-2.5">チーム / 参加者</th>
+                    <th className="p-2.5">{isTeamFormat(activeTournament.format) ? 'チーム名' : '参加者'}</th>
                     <th className="p-2.5">勝ち点</th>
                     <th className="p-2.5">勝敗</th>
                     <th className="p-2.5">勝率</th>
@@ -903,7 +1112,7 @@ export const TournamentPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 個人別詳細戦績テーブル */}
+          {/* 個人別詳細戦績テーブル（チーム戦時） */}
           {isTeamFormat(activeTournament.format) && (
             <div className="space-y-2 pt-2">
               <h4 className="font-bold text-sm flex items-center gap-1.5">
